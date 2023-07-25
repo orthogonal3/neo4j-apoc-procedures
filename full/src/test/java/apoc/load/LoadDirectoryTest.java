@@ -18,6 +18,8 @@
  */
 package apoc.load;
 
+import apoc.cypher.Cypher;
+import apoc.schema.Schemas;
 import apoc.util.TestUtil;
 import junit.framework.TestCase;
 import org.apache.commons.io.FileUtils;
@@ -68,10 +70,11 @@ import static org.hamcrest.Matchers.isOneOf;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.neo4j.test.assertion.Assert.assertEventually;
 
 public class LoadDirectoryTest {
-    private static final Class[] PROCS_TO_REGISTER = { LoadDirectory.class, LoadCsv.class, LoadJson.class };
+    private static final Class[] PROCS_TO_REGISTER = { LoadDirectory.class, LoadCsv.class, LoadJson.class, Schemas.class, Cypher.class };
 
     @ClassRule
     public static TemporaryFolder temporaryFolder = new TemporaryFolder();
@@ -158,15 +161,44 @@ public class LoadDirectoryTest {
         }
     }
 
-    @Test(expected = QueryExecutionException.class)
+    @Test
     public void testNotAllowSchemaOperation() {
+        String query = "CREATE INDEX FOR (a:Test) ON (a.name)";
+        String errorMsg = "Supported query types for the operation are [READ_WRITE, WRITE]";
+        testSchemaOperationCommon(query, errorMsg);
+    }
+
+    @Test
+    public void testNotAllowSchemaProcedure() {
+        String errMessage = "Supported inner procedure modes for the operation are [WRITE]";
+
+        // built-in neo4j procedure
+        final String createCons = "CALL db.createUniquePropertyConstraint('uniqueConsName', ['Alpha', 'Beta'], ['foo', 'bar'], 'lucene-1.0')";
+        testSchemaOperationCommon(createCons, errMessage);
+
+        // apoc procedures
+        testSchemaOperationCommon("CALL apoc.schema.assert({}, {})", errMessage);
+        testSchemaOperationCommon("CALL apoc.cypher.runSchema('CREATE CONSTRAINT periodicIdx FOR (n:Bar) REQUIRE n.first_name IS UNIQUE', {})", errMessage);
+
+        // inner schema procedure
+        final String innerSchema = "CALL { WITH 1 AS one CALL apoc.schema.assert({}, {}) YIELD key RETURN key } " +
+                "IN TRANSACTIONS OF 1000 rows RETURN 1";
+        testSchemaOperationCommon(innerSchema, errMessage);
+    }
+
+
+    private void testSchemaOperationCommon(String query, String errorMsg) {
         try {
-            db.executeTransactionally("CALL apoc.load.directory.async.add('test','CREATE INDEX FOR (a:Test) ON (a.name)', '*.csv', '', {}) YIELD name RETURN name");
+            testCall(db, "CALL apoc.load.directory.async.add('test', $query)",
+                    Map.of("query", query),
+                    (row) -> fail("Should fail because of unsupported schema operation"));
         } catch (QueryExecutionException e) {
             Throwable except = ExceptionUtils.getRootCause(e);
-            TestCase.assertTrue(except instanceof RuntimeException);
-            assertEquals("Supported query types for the operation are [READ_WRITE, WRITE]", except.getMessage());
-            throw e;
+            assertEquals(errorMsg, except.getMessage());
+
+//            final String expected = "Failed to invoke procedure `apoc.periodic.submit`: " +
+//                    "Caused by: java.lang.RuntimeException: " + errMessage;
+//            assertEquals(expected, e.getMessage());
         }
     }
 

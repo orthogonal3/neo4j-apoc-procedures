@@ -28,6 +28,7 @@ import org.apache.commons.io.filefilter.TrueFileFilter;
 import org.apache.commons.io.filefilter.WildcardFileFilter;
 import org.apache.commons.lang3.StringUtils;
 import org.neo4j.graphdb.GraphDatabaseService;
+import org.neo4j.graphdb.QueryExecutionType;
 import org.neo4j.graphdb.Transaction;
 import org.neo4j.logging.Log;
 import org.neo4j.procedure.Context;
@@ -42,6 +43,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import static apoc.ApocConfig.apocConfig;
@@ -74,7 +76,9 @@ public class LoadDirectory {
                                                              @Name(value = "urlDir", defaultValue = "") String urlDir,
                                                              @Name(value = "config", defaultValue = "{}") Map<String, Object> config) throws IOException {
         apocConfig().checkReadAllowed(urlDir);
-        Util.validateQuery(db, cypher, READ_WRITE, WRITE);
+        Util.validateQuery(db, cypher,
+                Set.of(Mode.WRITE),
+                READ_WRITE, WRITE);
 
         LoadDirectoryItem.LoadDirectoryConfig conf = new LoadDirectoryItem.LoadDirectoryConfig(config);
         LoadDirectoryItem loadDirectoryItem = new LoadDirectoryItem(name, pattern, cypher, checkIfUrlBlankAndGetFileUrl(urlDir), conf);
